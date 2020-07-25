@@ -19,13 +19,15 @@ namespace PhilomenaCopier {
         // Matches a domain, ignoring "http"/"https" and trailing "/"
         private const string DomainPattern = @"^(?:https?:\/\/)?(.+?\..+?)\/?$$";
 
+	    private const int maxAttemptsAtMaxDelay = 2;
+
         // Matches a Philomena API Key. 20 characters long.
         private const string ApiKeyPattern = @"^(.{20})$";
 
         private const int PerPage = 50;
 
-        private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(4);
-        private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(1024);  // 17 minutes and 4 seconds
+        private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(512);  // 17 minutes and 4 seconds
 
         // A browser user agent
         private const string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:77.0) Gecko/20100101 Firefox/77.0";
@@ -88,8 +90,28 @@ namespace PhilomenaCopier {
             wc.Headers["User-Agent"] = UserAgent;
 
             string queryUrl = GetSearchQueryUrl(booru, apiKey, query, page);
-            string searchJson = await wc.DownloadStringTaskAsync(queryUrl);
-            return JsonConvert.DeserializeObject<SearchQueryImages>(searchJson);
+            try {
+                string searchJson = await wc.DownloadStringTaskAsync(queryUrl);
+                return JsonConvert.DeserializeObject<SearchQueryImages>(searchJson);
+            }
+            catch (WebException ex) {
+                if (ex.Status == WebExceptionStatus.ProtocolError) {
+                    HttpWebResponse response = ex.Response as HttpWebResponse;
+                    if (response != null) {
+                        // Other http status code
+                        Console.WriteLine($"Error uploading image ({response.StatusCode})");
+                    }
+                    else {
+                        // no http status code available
+                        Console.WriteLine("Error uploading image (Unknown error)");
+                    }
+                }
+                else {
+                    // no http status code available
+                    Console.WriteLine("Error uploading image (Unknown error)");
+                }
+                return null;
+            }
         }
 
         private static async Task<PostStatus> UploadImage(WebClient wc, Image image, string booru, string apiKey) {
@@ -191,8 +213,9 @@ namespace PhilomenaCopier {
                         currentRetryDelay = InitialRetryDelay;
 
                         bool success = false;
+			            int attemptsAtMaxDelay = 0;
 
-                        while (!success) {
+                        while (!success && attemptsAtMaxDelay < maxAttemptsAtMaxDelay) {
                             Console.WriteLine($"Uploading image {currentImage}/{searchImages.total} ({image.id})...");
                             PostStatus status = await UploadImage(wc, image, targetBooru, targetApiKey);
 
@@ -204,13 +227,18 @@ namespace PhilomenaCopier {
                                 // Double the delay for next time, if it is below the max
                                 if (currentRetryDelay < MaxRetryDelay) {
                                     currentRetryDelay *= 2;
-                                }
-                            }
-                            else {
+                                } else {
+				                    attemptsAtMaxDelay++;
+				                }
+                            } else {
                                 // Move to the next image
                                 success = true;
                             }
                         }
+
+			            if (attemptsAtMaxDelay >= maxAttemptsAtMaxDelay) {
+			                Console.WriteLine("Max attempts reached; moving onto next image.");
+			            }
 
                         currentImage++;
 
@@ -218,9 +246,19 @@ namespace PhilomenaCopier {
                         await Task.Delay(InitialRetryDelay);
                     }
 
+                    currentRetryDelay = InitialRetryDelay;
                     // Load the next page
                     currentPage++;
-                    searchImages = await GetSearchQueryImages(wc, sourceBooru, sourceApiKey, searchQuery, currentPage);
+                    do {
+                        searchImages = await GetSearchQueryImages(wc, sourceBooru, sourceApiKey, searchQuery, currentPage);
+                        if (searchImages == null) {
+                            Console.WriteLine($"Retrying in {currentRetryDelay.TotalSeconds} seconds...");
+                            await Task.Delay(currentRetryDelay);
+                            if (currentRetryDelay < MaxRetryDelay) {
+                                currentRetryDelay *= 2;
+                            } 
+                        }
+                    } while(searchImages == null);
                 }
             }
 
