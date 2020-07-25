@@ -26,7 +26,7 @@ namespace PhilomenaCopier {
 
         private const int PerPage = 50;
 
-        private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(0.25);
         private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(512);  // 17 minutes and 4 seconds
 
         // A browser user agent
