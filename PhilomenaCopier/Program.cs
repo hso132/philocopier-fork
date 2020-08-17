@@ -19,6 +19,8 @@ namespace PhilomenaCopier {
         // Matches a domain, ignoring "http"/"https" and trailing "/"
         private const string DomainPattern = @"^(?:https?:\/\/)?(.+?\..+?)\/?$$";
 
+		private const string InSiteLinkPattern = @">>([0-9]+)(t?)";
+
 	    private const int maxAttemptsAtMaxDelay = 2;
 
         // Matches a Philomena API Key. 20 characters long.
@@ -84,6 +86,10 @@ namespace PhilomenaCopier {
                 Console.WriteLine(errorText);
             }
         }
+
+		private static string ReplaceLink(Match match, string website) {
+    		return "\">> " + match.Groups[1] + match.Groups[2] + "\":https://" + website + "/images/" + match.Groups[1] + " ";
+  		}
 
         private static async Task<SearchQueryImages> GetSearchQueryImages(WebClient wc, string booru, string apiKey, string query, int page) {
             // Set required headers
@@ -211,6 +217,7 @@ namespace PhilomenaCopier {
                     foreach (Image image in searchImages.images) {
                         // Reset the retry delay
                         currentRetryDelay = InitialRetryDelay;
+						image.description = Regex.Replace(image.description, InSiteLinkPattern, new MatchEvaluator(match => ReplaceLink(match, targetBooru)));
 
                         bool success = false;
 			            int attemptsAtMaxDelay = 0;
