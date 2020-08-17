@@ -217,7 +217,7 @@ namespace PhilomenaCopier {
                     foreach (Image image in searchImages.images) {
                         // Reset the retry delay
                         currentRetryDelay = InitialRetryDelay;
-						image.description = Regex.Replace(image.description, InSiteLinkPattern, new MatchEvaluator(match => ReplaceLink(match, targetBooru)));
+						image.description = Regex.Replace(image.description, InSiteLinkPattern, new MatchEvaluator(match => ReplaceLink(match, sourceBooru)));
 
                         bool success = false;
 			            int attemptsAtMaxDelay = 0;
