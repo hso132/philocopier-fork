@@ -19,7 +19,8 @@ namespace PhilomenaCopier {
         // Matches a domain, ignoring "http"/"https" and trailing "/"
         private const string DomainPattern = @"^(?:https?:\/\/)?(.+?\..+?)\/?$$";
 
-		private const string InSiteLinkPattern = @">>([0-9]+)(t?)";
+		private const string InSiteLinkPattern = @">>([0-9]+)(t|p?)";
+        private const string RelativeLinkPattern = @"""(.+)"":(\/.+) *";
 
 	    private const int maxAttemptsAtMaxDelay = 2;
 
@@ -87,9 +88,14 @@ namespace PhilomenaCopier {
             }
         }
 
-		private static string ReplaceLink(Match match, string website) {
+		private static string ReplaceMDLink(Match match, string website) {
     		return "\">> " + match.Groups[1] + match.Groups[2] + "\":https://" + website + "/images/" + match.Groups[1] + " ";
   		}
+
+        private static string ReplaceRelLink(Match match, string website) {
+            return "\"" + match.Groups[1] + "\":https://" + website + match.Groups[2];
+        }
+
 
         private static async Task<SearchQueryImages> GetSearchQueryImages(WebClient wc, string booru, string apiKey, string query, int page) {
             // Set required headers
@@ -217,7 +223,8 @@ namespace PhilomenaCopier {
                     foreach (Image image in searchImages.images) {
                         // Reset the retry delay
                         currentRetryDelay = InitialRetryDelay;
-						image.description = Regex.Replace(image.description, InSiteLinkPattern, new MatchEvaluator(match => ReplaceLink(match, sourceBooru)));
+						image.description = Regex.Replace(image.description, InSiteLinkPattern, new MatchEvaluator(match => ReplaceMDLink(match, sourceBooru)));
+                        image.description = Regex.Replace(image.description, RelativeLinkPattern, new MatchEvaluator(match => ReplaceRelLink(match, sourceBooru)));
 
                         bool success = false;
 			            int attemptsAtMaxDelay = 0;
