@@ -43,10 +43,34 @@ namespace PhilomenaCopier {
             public int id { get; set; }
         }
 
+        private class ImageTwibooru {
+            public string description { get; set; }
+            public string source_url { get; set; }
+            public string tags { get; set; }
+            public string image { get; set; }
+            public int id { get; set; }
+			public static implicit operator Image (ImageTwibooru d) {
+				Image res = new Image();
+				res.description = d.description;
+				res.source_url = d.source_url;
+				res.tags = new List<string>(d.tags.Split(", "));
+				res.view_url = d.image;
+				res.id = d.id;
+
+				return res;
+			}
+        }
+
+
         private class SearchQueryImages {
             public List<Image> images { get; set; }
             public int total { get; set; }
         }
+
+		private class SearchQueryImagesTwibooru {
+			public List<ImageTwibooru> search { get; set; }
+			public int total { get; set; }
+		}
 
         private class UploadImageInfo {
             public string description { get; set; }
@@ -66,7 +90,11 @@ namespace PhilomenaCopier {
         }
 
         private static string GetSearchQueryUrl(string booru, string apiKey, string query, int page) {
-            return $"https://{booru}/api/v1/json/search/images?key={apiKey}&page={page}&per_page={PerPage}&q={query}&sf=created_at&sd=asc";
+			if (booru != "twibooru.org") {
+            	return $"https://{booru}/api/v1/json/search/images?key={apiKey}&page={page}&per_page={PerPage}&q={query}&sf=created_at&sd=asc";
+			} else {
+				return $"https://{booru}/search.json?key={apiKey}&page={page}&per_page={PerPage}&q={query}&sf=created_at&sd=asc";
+			}
         }
 
         private static string GetUploadImageUrl(string booru, string apiKey) {
@@ -104,14 +132,26 @@ namespace PhilomenaCopier {
             string queryUrl = GetSearchQueryUrl(booru, apiKey, query, page);
             try {
                 string searchJson = await wc.DownloadStringTaskAsync(queryUrl);
-                return JsonConvert.DeserializeObject<SearchQueryImages>(searchJson);
+                SearchQueryImages result;
+				if (booru != "twibooru.org") {
+					result = JsonConvert.DeserializeObject<SearchQueryImages>(searchJson);
+				} else {
+					SearchQueryImagesTwibooru intermResult = JsonConvert.DeserializeObject<SearchQueryImagesTwibooru>(searchJson);
+					result = new SearchQueryImages();
+					result.total = intermResult.total;
+					result.images = intermResult.search.ConvertAll(im => (Image)im);
+				}
+				if (result.images == null) {
+					Console.WriteLine($"Null search images. JSON: {searchJson}");
+				}
+				return result;
             }
             catch (WebException ex) {
                 if (ex.Status == WebExceptionStatus.ProtocolError) {
                     HttpWebResponse response = ex.Response as HttpWebResponse;
                     if (response != null) {
                         // Other http status code
-                        Console.WriteLine($"Error uploading image ({response.StatusCode})");
+                        Console.WriteLine($"Error uploading image ({response.StatusCode})(request: {queryUrl}");
                     }
                     else {
                         // no http status code available
@@ -143,6 +183,7 @@ namespace PhilomenaCopier {
                 tag_input = tagString,
                 source_url = image.source_url
             };
+
             UploadImageBody uploadImageBody = new UploadImageBody
             {
                 image = uploadImage,
@@ -214,10 +255,14 @@ namespace PhilomenaCopier {
                 Console.WriteLine($"There are {searchImages.total} images in this query");
                 Console.WriteLine("Ensure the query and image count are correct! If they are not, Ctrl-C to exit. Otherwise, press enter to continue.");
                 Console.ReadLine();
+				if (searchImages.images == null) {
+					Console.WriteLine("Fatal error, searchImages.images is null");
+				}
 
                 // Upload all images
                 int currentImage = 1;
                 TimeSpan currentRetryDelay;
+				string sourceBooruAbbreviated = sourceBooru.Substring(0, sourceBooru.LastIndexOf("."));
                 while (searchImages.images.Count > 0) {
                     // Upload the current page
                     foreach (Image image in searchImages.images) {
@@ -225,6 +270,7 @@ namespace PhilomenaCopier {
                         currentRetryDelay = InitialRetryDelay;
 						image.description = Regex.Replace(image.description, InSiteLinkPattern, new MatchEvaluator(match => ReplaceMDLink(match, sourceBooru)));
                         image.description = Regex.Replace(image.description, RelativeLinkPattern, new MatchEvaluator(match => ReplaceRelLink(match, sourceBooru)));
+						image.tags.Add($"{sourceBooruAbbreviated} import");
 
                         bool success = false;
 			            int attemptsAtMaxDelay = 0;
